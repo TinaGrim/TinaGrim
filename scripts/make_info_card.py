@@ -43,20 +43,20 @@ ACCENT = "#22d3ee"
 #    ("bul", text)          -> green dot + light bullet
 #    ("gap",)               -> a little vertical space
 # ===========================================================================
-HOST = "mithun"   # shown as  mithun@github  in the header
+HOST = "TINARITH"   # shown as  mithun@github  in the header
 
 ROWS = [
     ("host",),
-    ("kv", "Now", "Python Developer"),
-    ("kv", "Also", "Co-Founder @ Quilonix"),
-    ("kv", "Loc", "Ramanagara, Karnataka, India"),
-    ("kv", "Site", "mithungowda.in"),
+    ("kv", "Role", "SoftWare Enginner"),
+    ("kv", "Also", "Student in Education"),
+    ("kv", "Loc", "Phnom Penh Thmei, SenSok, Phnom Penh, Cambodia"),
+    # ("kv", "Site", "mithungowda.in"),
     ("gap",),
     ("sec", "Stack"),
     ("kv", "Backend", "Flask, FastAPI, Python"),
     ("kv", "Data", "Pandas, Colab"),
-    ("kv", "Mobile", "Dart"),
-    ("kv", "Deploy", "Netlify"),
+    ("kv", "Website", "TypeScript"),
+    # ("kv", "Deploy", "Netlify"),
     ("gap",),
     ("sec", "Highlights"),
     ("bul", "Published packages on PyPI"),
