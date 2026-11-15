@@ -1,17 +1,26 @@
 """
 Build a neofetch-style info card SVG (Andrew6rant style) to sit to the RIGHT of
 the ASCII portrait: colored key/value rows for work experience, tech stack, and
-highlights -- NOT GitHub stats (the contribution graph covers those).
+highlights.
 
-Static content, hand-authored below. Lines fade/slide in on a short stagger so
-it feels like the panel is printing alongside the portrait. STATIC=1 emits the
-frozen state for Quick Look previews.
+Prose rows are hand-authored below; the public-repo / follower highlight is
+pulled live from the public GitHub API (no token required) so it never goes
+stale, falling back to the last successful fetch cached in
+data/github-stats.json when the network is unavailable.
+
+Lines fade/slide in on a short stagger so it feels like the panel is printing
+alongside the portrait. STATIC=1 emits the frozen state for Quick Look previews.
 """
+
+import datetime
 import html
+import json
 import os
+import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "..", "info-card.svg")
+STATS_CACHE = os.path.join(HERE, "..", "data", "github-stats.json")
 STATIC = bool(os.environ.get("STATIC"))
 
 W, H = 480, 376
@@ -26,7 +35,7 @@ BG2 = "#111722"
 FRAME = "#30363d"
 MUTED = "#7d8590"
 INK = "#c9d1d9"
-KEY = "#ffa657"      # orange keys (matches Andrew)
+KEY = "#ffa657"  # orange keys (matches Andrew)
 SECTION = "#58a6ff"  # blue section headers
 GREEN = "#3fb950"
 ACCENT = "#22d3ee"
@@ -41,9 +50,10 @@ ACCENT = "#22d3ee"
 #    ("kv", key, value)     -> orange key + light value
 #    ("sec", title)         -> blue "— title —" section rule
 #    ("bul", text)          -> green dot + light bullet
+#    ("stats",)             -> green dot + LIVE "N public repos, M followers"
 #    ("gap",)               -> a little vertical space
 # ===========================================================================
-HOST = "TINARITH"   # shown as  mithun@github  in the header
+HOST = "TINARITH"  # shown as  mithun@github  in the header
 
 ROWS = [
     ("host",),
@@ -60,13 +70,91 @@ ROWS = [
     # ("kv", "Deploy", "Netlify"),
     ("gap",),
     ("sec", "Highlights"),
-    ("bul", "Published packages on PyPI"),
-    ("bul", "112 public repos, 266 followers"),
+    ("stats",),  # live: public repo count + followers, fetched from GitHub
 ]
+
+
+# ===========================================================================
+#  LIVE STATS -- the repo/follower highlight is fetched from the public GitHub
+#  API instead of being typed by hand. GH_PROFILE_USER picks the account;
+#  GITHUB_TOKEN (optional) raises the unauthenticated rate limit.
+# ===========================================================================
+STATS_USER = os.environ.get("GH_PROFILE_USER", "TinaGrim")
+API_URL = f"https://api.github.com/users/{STATS_USER}"
 
 
 def esc(s):
     return html.escape(s)
+
+
+def load_cached_stats():
+    try:
+        with open(STATS_CACHE) as f:
+            cached = json.load(f)
+    except (OSError, ValueError):
+        return None
+    if str(cached.get("username", "")).lower() != STATS_USER.lower():
+        return None  # stale cache for a different account
+    return cached
+
+
+def fetch_stats():
+    """public_repos + followers from https://api.github.com/users/<user>.
+
+    Never raises: on any failure (offline, rate limit, renamed account, missing
+    requests) it reuses the last cached fetch, or returns None if there is none.
+    """
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "profile-readme-bot/1.0",
+    }
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+
+    try:
+        import requests
+
+        resp = requests.get(API_URL, headers=headers, timeout=15)
+        resp.raise_for_status()
+        profile = resp.json()
+        stats = {
+            "username": profile.get("login", STATS_USER),
+            "public_repos": int(profile["public_repos"]),
+            "followers": int(profile["followers"]),
+            "fetched_at": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+    except Exception as exc:  # offline / rate-limited / API changed -- keep drawing
+        cached = load_cached_stats()
+        if cached:
+            print(
+                f"stats fetch failed ({exc}); using cache from {cached.get('fetched_at')}",
+                file=sys.stderr,
+            )
+            return cached
+        print(
+            f"stats fetch failed ({exc}); no cache -- omitting live stats",
+            file=sys.stderr,
+        )
+        return None
+
+    os.makedirs(os.path.dirname(STATS_CACHE), exist_ok=True)
+    with open(STATS_CACHE, "w") as f:
+        json.dump(stats, f, indent=2)
+    return stats
+
+
+def count_label(n, singular):
+    return f"{n:,} {singular}" + ("" if n == 1 else "s")
+
+
+def stats_text(stats):
+    if not stats:
+        return None
+    return (
+        f"{count_label(stats['public_repos'], 'public repo')}, "
+        f"{count_label(stats['followers'], 'follower')}"
+    )
 
 
 def rise(inner, i):
@@ -74,26 +162,34 @@ def rise(inner, i):
     if STATIC:
         return f"<g>{inner}</g>"
     delay = 0.15 + i * 0.06
-    return (f'<g opacity="0" transform="translate(0,5)">{inner}'
-            f'<animate attributeName="opacity" from="0" to="1" begin="{delay:.2f}s" dur="0.4s" fill="freeze"/>'
-            f'<animateTransform attributeName="transform" type="translate" from="0 5" to="0 0" '
-            f'begin="{delay:.2f}s" dur="0.4s" fill="freeze" calcMode="spline" keySplines="0.2 0.8 0.2 1"/></g>')
+    return (
+        f'<g opacity="0" transform="translate(0,5)">{inner}'
+        f'<animate attributeName="opacity" from="0" to="1" begin="{delay:.2f}s" dur="0.4s" fill="freeze"/>'
+        f'<animateTransform attributeName="transform" type="translate" from="0 5" to="0 0" '
+        f'begin="{delay:.2f}s" dur="0.4s" fill="freeze" calcMode="spline" keySplines="0.2 0.8 0.2 1"/></g>'
+    )
 
+
+stats = fetch_stats()
 
 parts = [
     f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}" '
     f'font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">',
-    '<defs>'
+    "<defs>"
     f'<linearGradient id="ibg" x1="0" y1="0" x2="0" y2="1">'
     f'<stop offset="0" stop-color="{BG2}"/><stop offset="1" stop-color="{BG}"/></linearGradient></defs>',
     f'<rect width="{W}" height="{H}" rx="12" fill="url(#ibg)"/>',
-    f'<rect x="0.5" y="0.5" width="{W-1}" height="{H-1}" rx="12" fill="none" stroke="{FRAME}"/>',
+    f'<rect x="0.5" y="0.5" width="{W - 1}" height="{H - 1}" rx="12" fill="none" stroke="{FRAME}"/>',
     f'<line x1="0" y1="{TITLEBAR_H}" x2="{W}" y2="{TITLEBAR_H}" stroke="{FRAME}"/>',
 ]
 for i, dotcol in enumerate(["#ff5f56", "#ffbd2e", "#27c93f"]):
-    parts.append(f'<circle cx="{PAD + i*16}" cy="{TITLEBAR_H/2}" r="5" fill="{dotcol}"/>')
-parts.append(f'<text x="{W/2}" y="{TITLEBAR_H/2 + 4}" fill="{MUTED}" font-size="12" '
-             f'text-anchor="middle">{esc(HOST)}@github: ~$ neofetch</text>')
+    parts.append(
+        f'<circle cx="{PAD + i * 16}" cy="{TITLEBAR_H / 2}" r="5" fill="{dotcol}"/>'
+    )
+parts.append(
+    f'<text x="{W / 2}" y="{TITLEBAR_H / 2 + 4}" fill="{MUTED}" font-size="12" '
+    f'text-anchor="middle">{esc(HOST)}@github: ~$ neofetch</text>'
+)
 
 y = TITLEBAR_H + 30
 for i, row in enumerate(ROWS):
@@ -104,25 +200,42 @@ for i, row in enumerate(ROWS):
     if kind == "host":
         host = esc(HOST)
         rule_x = KEY_X + (len(HOST) + 7) * 8 + 8
-        inner = (f'<text x="{KEY_X}" y="{y:.1f}" font-size="14" font-weight="700">'
-                 f'<tspan fill="{GREEN}">{host}</tspan><tspan fill="{MUTED}">@</tspan>'
-                 f'<tspan fill="{ACCENT}">github</tspan></text>'
-                 f'<line x1="{rule_x}" y1="{y-4:.1f}" x2="{W-PAD}" y2="{y-4:.1f}" '
-                 f'stroke="{FRAME}" stroke-opacity="0.8"/>')
+        inner = (
+            f'<text x="{KEY_X}" y="{y:.1f}" font-size="14" font-weight="700">'
+            f'<tspan fill="{GREEN}">{host}</tspan><tspan fill="{MUTED}">@</tspan>'
+            f'<tspan fill="{ACCENT}">github</tspan></text>'
+            f'<line x1="{rule_x}" y1="{y - 4:.1f}" x2="{W - PAD}" y2="{y - 4:.1f}" '
+            f'stroke="{FRAME}" stroke-opacity="0.8"/>'
+        )
     elif kind == "sec":
         title = esc(row[1])
-        inner = (f'<text x="{KEY_X}" y="{y:.1f}" fill="{SECTION}" font-size="12.5" font-weight="700">'
-                 f'&#8212; {title}</text>'
-                 f'<line x1="{KEY_X + 12 + len(row[1])*8}" y1="{y-4:.1f}" x2="{W-PAD}" y2="{y-4:.1f}" '
-                 f'stroke="{FRAME}" stroke-opacity="0.8"/>')
+        inner = (
+            f'<text x="{KEY_X}" y="{y:.1f}" fill="{SECTION}" font-size="12.5" font-weight="700">'
+            f"&#8212; {title}</text>"
+            f'<line x1="{KEY_X + 12 + len(row[1]) * 8}" y1="{y - 4:.1f}" x2="{W - PAD}" y2="{y - 4:.1f}" '
+            f'stroke="{FRAME}" stroke-opacity="0.8"/>'
+        )
     elif kind == "kv":
         key, val = esc(row[1]), esc(row[2])
-        inner = (f'<text x="{KEY_X}" y="{y:.1f}" fill="{KEY}" font-size="12.5" font-weight="700">{key}</text>'
-                 f'<text x="{VAL_X}" y="{y:.1f}" fill="{INK}" font-size="12.5">{val}</text>')
+        inner = (
+            f'<text x="{KEY_X}" y="{y:.1f}" fill="{KEY}" font-size="12.5" font-weight="700">{key}</text>'
+            f'<text x="{VAL_X}" y="{y:.1f}" fill="{INK}" font-size="12.5">{val}</text>'
+        )
     elif kind == "bul":
         txt = esc(row[1])
-        inner = (f'<circle cx="{KEY_X+3}" cy="{y-4:.1f}" r="2.5" fill="{GREEN}"/>'
-                 f'<text x="{KEY_X+14}" y="{y:.1f}" fill="{INK}" font-size="12.5">{txt}</text>')
+        inner = (
+            f'<circle cx="{KEY_X + 3}" cy="{y - 4:.1f}" r="2.5" fill="{GREEN}"/>'
+            f'<text x="{KEY_X + 14}" y="{y:.1f}" fill="{INK}" font-size="12.5">{txt}</text>'
+        )
+    elif kind == "stats":
+        txt = stats_text(stats)
+        col = INK
+        if txt is None:  # offline with no cache yet -- keep the row, say why
+            txt, col = "GitHub stats unavailable", MUTED
+        inner = (
+            f'<circle cx="{KEY_X + 3}" cy="{y - 4:.1f}" r="2.5" fill="{GREEN}"/>'
+            f'<text x="{KEY_X + 14}" y="{y:.1f}" fill="{col}" font-size="12.5">{esc(txt)}</text>'
+        )
     else:
         continue
     parts.append(rise(inner, i))

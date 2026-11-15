@@ -37,9 +37,12 @@ Here is exactly what I want you to do, in order:
    STATIC=1 when generating.
 
 4. Info panel: edit the ROWS list + HOST at the top of scripts/make_info_card.py
-   with my real experience / stack / highlights (NOT github stats -- the graph
-   covers those), then run it to produce info-card.svg. Keep it the same height
-   as the portrait; if it overflows, bump H in the script.
+   with my real experience / stack / highlights, then run it to produce
+   info-card.svg. The "stats" row pulls my live public repo and follower counts
+   from the public GitHub API (GH_PROFILE_USER, optional GITHUB_TOKEN) and caches
+   them in data/github-stats.json -- commit that cache so an offline render still
+   shows real numbers. Keep it the same height as the portrait; if it overflows,
+   bump H in the script.
 
 5. Contribution graph: run `python scripts/fetch_contributions.py` (set
    GH_PROFILE_USER to my username) then `python scripts/render_heatmap_svg.py`
@@ -50,11 +53,12 @@ Here is exactly what I want you to do, in order:
    tagline, and links. The portrait (width 370) and info card (width 490) sit in
    a table so they're the same height.
 
-7. Automation: copy .github/workflows/update-profile-art.yml in. It re-scrapes
-   my contributions and re-renders the graph every day with zero auth. After the
-   first push, set the repo's Settings -> Actions -> Workflow permissions to
-   "Read and write", then trigger the workflow once so the graph exists
-   immediately.
+7. Automation: copy .github/workflows/update-profile-art.yml in. Every day it
+   re-scrapes my contributions, re-renders the graph, and refreshes the info
+   card's live repo/follower counts -- zero stored secrets (the repo owner is
+   used as GH_PROFILE_USER). After the first push, set the repo's Settings ->
+   Actions -> Workflow permissions to "Read and write", then trigger the
+   workflow once so the art exists immediately.
 
 8. Commit and push everything. Show me the final rendered profile and the repo
    URL. Then tell me the one-line commands to re-tune the portrait or edit the
